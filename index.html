@@ -139,4 +139,650 @@ nav.schede button[aria-current="page"]{color:var(--lago);font-weight:700}
   <div class="box">
     <span class="logo" role="img" aria-label="Logo Istituto Walden"></span>
     <h1>Istituto Walden</h1>
-    <p class="sotto">Lezioni, materiali, quiz e
+    <p class="sotto">Lezioni, materiali, quiz e presenze dei tuoi corsi.</p>
+    <label for="a-email">Email</label>
+    <input id="a-email" type="email" autocomplete="email" placeholder="nome@esempio.it">
+    <label for="a-pwd">Password</label>
+    <input id="a-pwd" type="password" autocomplete="current-password">
+    <div class="errore" id="a-err" role="alert"></div>
+    <button class="btn pieno" id="a-entra">Accedi</button>
+    <div class="riga-btn" style="justify-content:space-between">
+      <button class="link" id="a-reg">Crea un account</button>
+      <button class="link" id="a-reset">Password dimenticata</button>
+    </div>
+    <div class="aiuto">Per averla sul telefono come un'app: su iPhone apri questa pagina con Safari, tocca Condividi e poi "Aggiungi alla schermata Home". Su Android apri il menu di Chrome e tocca "Installa app".</div>
+  </div>
+</section>
+
+<!-- Registrazione -->
+<section id="registrazione" class="centro" hidden>
+  <div class="box">
+    <span class="logo" role="img" aria-label="Logo Istituto Walden"></span>
+    <h1>Crea un account</h1>
+    <p class="sotto">La segreteria approverà la richiesta e ti assegnerà alla tua classe.</p>
+    <label for="r-nome">Nome e cognome</label><input id="r-nome" autocomplete="name">
+    <label for="r-email">Email</label><input id="r-email" type="email" autocomplete="email">
+    <label for="r-pwd">Password (almeno 6 caratteri)</label><input id="r-pwd" type="password" autocomplete="new-password">
+    <label>Sono</label>
+    <div class="scelta">
+      <label><input type="radio" name="r-tipo" value="studente" checked> Studente</label>
+      <label><input type="radio" name="r-tipo" value="docente"> Docente</label>
+    </div>
+    <div id="r-classe-box">
+      <label for="r-classe">La mia classe</label><select id="r-classe"></select>
+    </div>
+    <div class="errore" id="r-err" role="alert"></div>
+    <button class="btn pieno" id="r-invia">Invia richiesta</button>
+    <div class="riga-btn"><button class="link" id="r-indietro">Ho già un account</button></div>
+  </div>
+</section>
+
+<!-- In attesa di approvazione -->
+<section id="attesa" class="centro" hidden>
+  <div class="box">
+    <span class="logo" role="img" aria-label="Logo Istituto Walden"></span>
+    <h1>Richiesta inviata</h1>
+    <p class="sotto">Il tuo account è in attesa di approvazione da parte della segreteria. Quando sarà approvato potrai entrare.</p>
+    <button class="btn pieno" id="w-ricarica">Controlla di nuovo</button>
+    <div class="riga-btn"><button class="link" id="w-esci">Esci</button></div>
+  </div>
+</section>
+
+<!-- App -->
+<div id="app" hidden>
+  <header class="barra">
+    <div class="wrap">
+      <span class="logo" aria-hidden="true"></span>
+      <div class="corso-sel"><small id="chi"></small><select id="classe" aria-label="Classe"></select></div>
+      <button class="esci" id="esci">Esci</button>
+    </div>
+  </header>
+  <main><div class="wrap" id="vista"></div></main>
+  <nav class="schede" aria-label="Sezioni"><div class="wrap" id="schede"></div></nav>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, getDocs, serverTimestamp, Timestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCwXNVFQey3ML_l-ql2Qp6PwTtif7dpAlI",
+  authDomain: "istituto-walden.firebaseapp.com",
+  projectId: "istituto-walden",
+  storageBucket: "istituto-walden.firebasestorage.app",
+  messagingSenderId: "63744588252",
+  appId: "1:63744588252:web:381b7d9392ccdc303af719"
+};
+const AMMINISTRATORE = "walden.technology@gmail.com";
+
+const fb = initializeApp(firebaseConfig);
+const auth = getAuth(fb);
+const db = getFirestore(fb);
+auth.languageCode = "it";
+
+/* ---------- Classi: 3 sedi × (4 annualità + esami finali di tesi) ---------- */
+const SEDI = [["roma","Roma"],["latina","Latina"],["bari","Bari"]];
+const CLASSI = [];
+for (const [sid, sn] of SEDI) {
+  for (let a = 1; a <= 4; a++) CLASSI.push({ id: `${sid}-${a}`, sede: sn, nome: `${a}° anno` });
+  CLASSI.push({ id: `${sid}-tesi`, sede: sn, nome: "Esami finali di tesi" });
+}
+const nomeClasse = id => { const c = CLASSI.find(x => x.id === id); return c ? `${c.sede} – ${c.nome}` : id; };
+const opzioniClassi = (sel) => SEDI.map(([, sn]) => `<optgroup label="Sede di ${sn}">${CLASSI.filter(c => c.sede === sn)
+  .map(c => `<option value="${c.id}" ${c.id === sel ? "selected" : ""}>${esc(sn + " – " + c.nome)}</option>`).join("")}</optgroup>`).join("");
+
+/* ---------- Utilità ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const oggi = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10); };
+const linkSicuro = u => /^https?:\/\//i.test(u || "") ? u : "#";
+function fmtData(s, ora) {
+  const d = new Date(s); if (isNaN(d)) return s;
+  let t = d.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long" });
+  if (ora) t += ", ore " + d.toLocaleTimeString("it-IT", { hour:"2-digit", minute:"2-digit" });
+  return t;
+}
+const breve = s => new Date(s).toLocaleDateString("it-IT", { day:"numeric", month:"short" });
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("vis"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("vis"), 2600); }
+function mostra(id) { for (const s of ["avvio","accesso","registrazione","attesa","app"]) $("#"+s).hidden = s !== id; window.scrollTo(0,0); }
+async function lista(col, ...filtri) {
+  const s = await getDocs(query(collection(db, col), ...filtri));
+  return s.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+const perClasse = (col, ...altri) => lista(col, where("classe", "==", classe), ...altri);
+function occupato(btn, si) { if (btn) btn.disabled = si; }
+function erroreAuth(e) {
+  const c = e.code || "";
+  if (c.includes("invalid-credential") || c.includes("wrong-password") || c.includes("user-not-found")) return "Email o password non corretti.";
+  if (c.includes("email-already-in-use")) return "Esiste già un account con questa email. Usa Accedi.";
+  if (c.includes("invalid-email")) return "L'email non è scritta correttamente.";
+  if (c.includes("weak-password")) return "La password deve avere almeno 6 caratteri.";
+  if (c.includes("too-many-requests")) return "Troppi tentativi. Riprova tra qualche minuto.";
+  if (c.includes("network")) return "Connessione assente. Controlla internet e riprova.";
+  return "Operazione non riuscita. Riprova.";
+}
+
+/* ---------- Stato ---------- */
+let utente = null, profilo = null, classe = null, scheda = "bacheca", registrazioneInCorso = null, giro = 0, lettore = null;
+const staff = () => profilo && (profilo.ruolo === "docente" || profilo.ruolo === "segreteria");
+const segreteria = () => profilo && profilo.ruolo === "segreteria";
+
+/* ---------- Accesso e registrazione ---------- */
+$("#r-classe").innerHTML = opzioniClassi("roma-1");
+document.querySelectorAll('input[name="r-tipo"]').forEach(r => r.onchange = () => {
+  $("#r-classe-box").hidden = document.querySelector('input[name="r-tipo"]:checked').value !== "studente";
+});
+$("#a-reg").onclick = () => { $("#r-err").textContent = ""; mostra("registrazione"); };
+$("#r-indietro").onclick = () => mostra("accesso");
+$("#a-entra").onclick = async () => {
+  const b = $("#a-entra"); $("#a-err").textContent = ""; occupato(b, true);
+  try { await signInWithEmailAndPassword(auth, $("#a-email").value.trim(), $("#a-pwd").value); }
+  catch (e) { $("#a-err").textContent = erroreAuth(e); }
+  occupato(b, false);
+};
+$("#a-pwd").addEventListener("keydown", e => { if (e.key === "Enter") $("#a-entra").click(); });
+$("#a-reset").onclick = async () => {
+  const em = $("#a-email").value.trim();
+  if (!em) { $("#a-err").textContent = "Scrivi la tua email nel campo qui sopra, poi tocca di nuovo Password dimenticata."; return; }
+  try { await sendPasswordResetEmail(auth, em); toast("Ti abbiamo inviato un'email per reimpostare la password"); }
+  catch (e) { $("#a-err").textContent = erroreAuth(e); }
+};
+$("#r-invia").onclick = async () => {
+  const nome = $("#r-nome").value.trim(), email = $("#r-email").value.trim(), pwd = $("#r-pwd").value;
+  const tipo = document.querySelector('input[name="r-tipo"]:checked').value;
+  if (!nome) { $("#r-err").textContent = "Scrivi nome e cognome."; return; }
+  const b = $("#r-invia"); $("#r-err").textContent = ""; occupato(b, true);
+  registrazioneInCorso = { nome, tipo, classe: tipo === "studente" ? $("#r-classe").value : null };
+  try { await createUserWithEmailAndPassword(auth, email, pwd); }
+  catch (e) { registrazioneInCorso = null; $("#r-err").textContent = erroreAuth(e); }
+  occupato(b, false);
+};
+$("#w-esci").onclick = () => signOut(auth);
+$("#esci").onclick = () => signOut(auth);
+$("#w-ricarica").onclick = () => caricaProfilo();
+
+onAuthStateChanged(auth, async u => {
+  utente = u; profilo = null;
+  fermaLettore();
+  if (!u) { mostra("accesso"); return; }
+  await caricaProfilo();
+});
+
+async function caricaProfilo() {
+  try {
+    const ref = doc(db, "utenti", utente.uid);
+    let s = await getDoc(ref);
+    if (!s.exists()) {
+      const admin = (utente.email || "").toLowerCase() === AMMINISTRATORE;
+      const r = registrazioneInCorso;
+      await setDoc(ref, {
+        nome: admin ? "Segreteria Istituto Walden" : (r ? r.nome : utente.email),
+        email: utente.email,
+        ruolo: admin ? "segreteria" : "in_attesa",
+        classi: [],
+        richiesta: admin ? null : (r ? { tipo: r.tipo, classe: r.classe } : null),
+        creato: serverTimestamp()
+      });
+      registrazioneInCorso = null;
+      s = await getDoc(ref);
+    }
+    profilo = s.data();
+    if (profilo.ruolo === "in_attesa") { mostra("attesa"); return; }
+    avviaApp();
+  } catch (e) {
+    console.error(e);
+    toast("Impossibile caricare il profilo. Controlla la connessione.");
+    mostra("attesa");
+  }
+}
+
+/* ---------- Struttura dell'app ---------- */
+const ICO = {
+  bacheca:'<path d="M4 11 12 4l8 7v9H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  materiali:'<path d="M6 3h9l4 4v14H6z M15 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  quiz:'<rect x="5" y="5" width="14" height="14" transform="rotate(45 12 12)" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8.5v4" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="15.5" r="1.2" fill="currentColor"/>',
+  osservazioni:'<path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  presenze:'<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2v2h-2zM18 14h2v2h-2z" fill="none" stroke="currentColor" stroke-width="2"/>',
+  utenti:'<circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6M16 5.5a3.2 3.2 0 0 1 0 6M18 14.5c1.9.8 3 2.8 3 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+};
+function schedeDisponibili() {
+  const s = [["bacheca","Bacheca"],["materiali","Materiali"],["quiz","Quiz"],["osservazioni","Osservazioni"],["presenze","Presenze"]];
+  if (segreteria()) s.push(["utenti","Utenti"]);
+  return s;
+}
+function classiVisibili() { return segreteria() ? CLASSI.map(c => c.id) : (profilo.classi || []); }
+
+function avviaApp() {
+  mostra("app");
+  $("#chi").textContent = profilo.nome + (profilo.ruolo === "docente" ? " · docente" : profilo.ruolo === "segreteria" ? " · segreteria" : "");
+  const vis = classiVisibili();
+  const sel = $("#classe");
+  if (!vis.length) {
+    sel.innerHTML = `<option>Nessuna classe assegnata</option>`; sel.disabled = true; classe = null;
+  } else {
+    const sedi = [...new Set(CLASSI.filter(c => vis.includes(c.id)).map(c => c.sede))];
+    sel.innerHTML = sedi.map(sn => `<optgroup label="Sede di ${sn}">${CLASSI.filter(c => c.sede === sn && vis.includes(c.id))
+      .map(c => `<option value="${c.id}">${esc(sn + " – " + c.nome)}</option>`).join("")}</optgroup>`).join("");
+    if (!vis.includes(classe)) classe = vis[0];
+    sel.value = classe; sel.disabled = vis.length < 2;
+  }
+  if (!schedeDisponibili().some(([k]) => k === scheda)) scheda = "bacheca";
+  disegnaSchede(); disegna();
+}
+$("#classe").onchange = e => { classe = e.target.value; disegna(); };
+
+function disegnaSchede() {
+  $("#schede").innerHTML = schedeDisponibili().map(([k, t]) => `<button data-s="${k}" ${k === scheda ? 'aria-current="page"' : ""}>
+    <svg viewBox="0 0 24 24" aria-hidden="true">${ICO[k]}</svg>${t}</button>`).join("");
+  $("#schede").querySelectorAll("button").forEach(b => b.onclick = () => { scheda = b.dataset.s; disegnaSchede(); disegna(); window.scrollTo(0,0); });
+}
+
+async function disegna() {
+  fermaLettore();
+  const mio = ++giro, v = $("#vista");
+  if (!classe && scheda !== "utenti") {
+    v.innerHTML = `<h2>Nessuna classe assegnata</h2><p class="vuoto">${segreteria() ? "" : "La segreteria non ti ha ancora assegnato a una classe."}</p>`;
+    return;
+  }
+  v.innerHTML = `<p class="vuoto">Caricamento…</p>`;
+  try {
+    const html = await VISTE[scheda]();
+    if (mio !== giro) return;
+    v.innerHTML = html;
+    if (AZIONI[scheda]) AZIONI[scheda](v);
+  } catch (e) {
+    console.error(e);
+    if (mio === giro) v.innerHTML = `<p class="vuoto">Impossibile caricare i dati. Controlla la connessione e riprova.</p>
+      <button class="btn secondario" id="riprova">Riprova</button>`;
+    const r = $("#riprova"); if (r) r.onclick = disegna;
+  }
+}
+const eliminabile = (col, id) => staff() ? ` <button class="link rosso" data-elimina="${col}/${id}">Elimina</button>` : "";
+function collegaElimina(v) {
+  v.querySelectorAll("[data-elimina]").forEach(b => b.onclick = async () => {
+    if (!confirm("Vuoi davvero eliminarlo?")) return;
+    const [col, id] = b.dataset.elimina.split("/");
+    try { await deleteDoc(doc(db, col, id)); toast("Eliminato"); disegna(); } catch (e) { toast("Eliminazione non riuscita"); }
+  });
+}
+
+/* ---------- Viste ---------- */
+let cache = {};
+const VISTE = {
+  async bacheca() {
+    const [lez, avv] = await Promise.all([perClasse("lezioni"), perClasse("avvisi")]);
+    lez.sort((a, b) => a.data.localeCompare(b.data));
+    avv.sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+    const pross = lez.find(l => l.data.slice(0,10) >= oggi());
+    return `
+    ${pross ? `<div class="prossima"><small>Prossima lezione · ${esc(nomeClasse(classe))}</small>
+      <div class="quando">${esc(fmtData(pross.data, true))}</div><div>${esc(pross.titolo)}</div><small>${esc(pross.luogo)}</small></div>`
+      : `<div class="prossima"><small>${esc(nomeClasse(classe))}</small><div class="quando">Nessuna lezione in programma</div></div>`}
+    <div class="sezione-titolo"><h2>Avvisi</h2></div>
+    ${staff() ? `<div class="pannello"><label for="nuovo-avviso">Nuovo avviso</label>
+      <textarea id="nuovo-avviso" placeholder="Scrivi un avviso per gli studenti della classe"></textarea>
+      <button class="btn" id="pubblica-avviso">Pubblica avviso</button></div>` : ""}
+    ${avv.map(a => `<div class="voce"><div class="meta">${esc(fmtData(a.data))}${a.autore ? " · " + esc(a.autore) : ""}${eliminabile("avvisi", a.id)}</div><p>${esc(a.testo)}</p></div>`).join("")
+      || `<p class="vuoto">Nessun avviso per ora.</p>`}
+    <div class="sezione-titolo" style="margin-top:30px"><h2>Calendario</h2></div>
+    ${staff() ? `<div class="pannello"><label for="l-tit">Nuova lezione</label><input id="l-tit" placeholder="Titolo della lezione">
+      <label for="l-data">Data e ora</label><input id="l-data" type="datetime-local">
+      <label for="l-luogo">Luogo</label><input id="l-luogo" placeholder="Aula o collegamento online">
+      <button class="btn" id="agg-lez">Aggiungi lezione</button></div>` : ""}
+    ${lez.map(l => `<div class="voce ${l.data.slice(0,10) < oggi() ? "piena" : ""}"><div class="meta">${esc(fmtData(l.data, true))}${eliminabile("lezioni", l.id)}</div>
+      <p>${esc(l.titolo)}${l.luogo ? " — " + esc(l.luogo) : ""}</p></div>`).join("") || `<p class="vuoto">Nessuna lezione in calendario.</p>`}`;
+  },
+
+  async materiali() {
+    const m = await perClasse("materiali");
+    m.sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+    return `<div class="sezione-titolo"><h2>Materiali</h2></div>
+    ${staff() ? `<div class="pannello"><label for="m-tit">Titolo</label><input id="m-tit" placeholder="Es. Slide lezione 3">
+      <label for="m-link">Link al file</label><input id="m-link" type="url" placeholder="https://…">
+      <p class="nota">Carica il file su Google Drive o Dropbox, copia il link di condivisione e incollalo qui.</p>
+      <button class="btn" id="agg-mat">Aggiungi materiale</button></div>` : ""}
+    ${m.map(x => `<div class="voce"><p><a href="${esc(linkSicuro(x.link))}" target="_blank" rel="noopener">${esc(x.titolo)}</a></p>
+      <div class="meta">${esc(fmtData(x.data))}${eliminabile("materiali", x.id)}</div></div>`).join("") || `<p class="vuoto">Ancora nessun materiale in questa classe.</p>`}`;
+  },
+
+  async quiz() {
+    const q = await perClasse("quiz");
+    q.sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+    cache.quiz = q;
+    if (staff()) {
+      const r = await perClasse("risultati");
+      return `<div class="sezione-titolo"><h2>Quiz</h2><button class="btn piccolo" id="nuovo-quiz">Crea un quiz</button></div>
+      ${q.map(x => { const rr = r.filter(y => y.quiz === x.id).sort((a, b) => a.nome.localeCompare(b.nome));
+        return `<div class="pannello"><h3>${esc(x.titolo)}</h3>
+        <div class="nota">${x.domande.length} domande · ${rr.length} consegnati${eliminabile("quiz", x.id)}</div>
+        ${rr.length ? `<div class="tabella-wrap"><table><tr><th>Studente</th><th>Punteggio</th><th>Data</th></tr>
+        ${rr.map(y => `<tr><td>${esc(y.nome)}</td><td>${y.punti}/${y.tot}</td><td>${esc(y.data)}</td></tr>`).join("")}</table></div>`
+        : `<p class="vuoto">Nessuno l'ha ancora svolto.</p>`}</div>`; }).join("") || `<p class="vuoto">Nessun quiz in questa classe. Tocca "Crea un quiz" per aggiungerne uno.</p>`}`;
+    }
+    const miei = await perClasse("risultati", where("studente", "==", utente.uid));
+    return `<div class="sezione-titolo"><h2>Quiz</h2></div>
+    ${q.map(x => { const f = miei.find(r => r.quiz === x.id);
+      return `<div class="voce ${f ? "piena" : ""}"><h3>${esc(x.titolo)}</h3>
+      <div class="meta">${f ? `Svolto: ${f.punti}/${f.tot}` : `${x.domande.length} domande`}</div>
+      <button class="btn piccolo ${f ? "secondario" : ""}" data-quiz="${x.id}" style="margin-top:10px">${f ? "Rifai il quiz" : "Inizia il quiz"}</button></div>`; }).join("")
+      || `<p class="vuoto">Nessun quiz disponibile.</p>`}`;
+  },
+
+  async osservazioni() {
+    const o = staff() ? await perClasse("osservazioni") : await perClasse("osservazioni", where("studente", "==", utente.uid));
+    o.sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+    return `<div class="sezione-titolo"><h2>${staff() ? "Osservazioni ricevute" : "Le mie osservazioni"}</h2></div>
+    ${staff() ? "" : `<div class="pannello"><label for="o-tit">Titolo</label><input id="o-tit" placeholder="Es. Esercitazione ABC – video 2">
+      <label for="o-testo">Osservazione</label><textarea id="o-testo" placeholder="Antecedente, comportamento, conseguenza…"></textarea>
+      <button class="btn" id="invia-oss">Invia al docente</button></div>`}
+    ${o.map(x => `<div class="voce"><div class="meta">${esc(fmtData(x.data))}${staff() ? " · " + esc(x.nome) : ""}${eliminabile("osservazioni", x.id)}</div>
+      <h3>${esc(x.titolo)}</h3><p>${esc(x.testo)}</p></div>`).join("")
+      || `<p class="vuoto">${staff() ? "Nessuna osservazione ricevuta." : "Non hai ancora inviato osservazioni."}</p>`}`;
+  },
+
+  async presenze() {
+    const lez = (await perClasse("lezioni")).sort((a, b) => a.data.localeCompare(b.data));
+    cache.lezioni = lez;
+    if (staff()) {
+      const [pres, iscr, sessSnap] = await Promise.all([
+        perClasse("presenze"),
+        lista("utenti", where("classi", "array-contains", classe)),
+        getDoc(doc(db, "sessioni", classe))
+      ]);
+      const studenti = iscr.filter(u => u.ruolo === "studente").sort((a, b) => a.nome.localeCompare(b.nome));
+      cache.pres = pres; cache.studenti = studenti;
+      const sess = sessSnap.exists() && sessSnap.data().scade.toMillis() > Date.now() ? sessSnap.data() : null;
+      cache.sess = sess;
+      const lezSess = sess && lez.find(l => l.id === sess.lezione);
+      const predefinita = (lez.find(l => l.data.slice(0,10) >= oggi()) || lez[lez.length - 1] || {}).id;
+      return `<div class="sezione-titolo"><h2>Presenze</h2></div>
+      ${lez.length ? `<div class="pannello"><label for="p-lez">Lezione</label>
+        <select id="p-lez">${lez.map(l => `<option value="${l.id}" ${l.id === (sess ? sess.lezione : predefinita) ? "selected" : ""}>${esc(fmtData(l.data))} – ${esc(l.titolo)}</option>`).join("")}</select>
+        <div class="riga-btn"><button class="btn" id="apri-qr">${sess ? "Genera un nuovo QR" : "Mostra QR in aula"}</button>
+        ${sess ? `<button class="btn secondario" id="chiudi-qr">Chiudi le presenze</button>` : ""}</div>
+        ${sess ? `<div class="qr-box"><div id="qr"></div><div class="codice">${esc(sess.codice)}</div>
+          <small>${esc(lezSess ? lezSess.titolo : "")} · valido fino alle ${sess.scade.toDate().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}</small></div>` : ""}
+        </div>` : `<p class="vuoto">Aggiungi prima le lezioni nel Calendario (sezione Bacheca).</p>`}
+      <h3 style="margin-top:26px">Registro</h3>
+      <p class="nota">Tocca una casella per segnare o togliere una presenza a mano.</p>
+      ${studenti.length && lez.length ? `<div class="tabella-wrap"><table>
+        <tr><th>Studente</th>${lez.map(l => `<th>${esc(breve(l.data))}</th>`).join("")}<th>Totale</th></tr>
+        ${studenti.map(s => { let n = 0;
+          const celle = lez.map(l => { const p = pres.some(p => p.lezione === l.id && p.studente === s.id); if (p) n++;
+            return `<td><button class="cella ${p ? "si" : "no"}" data-l="${l.id}" data-s="${s.id}" aria-label="${esc(s.nome)}, ${esc(breve(l.data))}: ${p ? "presente" : "assente"}">${p ? "✓" : "–"}</button></td>`; }).join("");
+          return `<tr><td>${esc(s.nome)}</td>${celle}<td>${n}/${lez.length}</td></tr>`; }).join("")}
+      </table></div>` : `<p class="vuoto">${studenti.length ? "" : "Nessuno studente assegnato a questa classe."}</p>`}`;
+    }
+    const mie = await perClasse("presenze", where("studente", "==", utente.uid));
+    cache.mie = mie;
+    const predef = (lez.find(l => l.data.slice(0,10) === oggi()) || lez.find(l => l.data.slice(0,10) >= oggi()) || {}).id;
+    return `<div class="sezione-titolo"><h2>Presenze</h2></div>
+    <div class="pannello"><h3>Segna la tua presenza</h3>
+      <p class="nota">Inquadra il QR mostrato dal docente in aula.</p>
+      <button class="btn pieno" id="scansiona" style="margin-top:12px">Scansiona il QR</button>
+      <div id="lettore"></div>
+      <details style="margin-top:14px"><summary class="link">La fotocamera non funziona? Inserisci il codice</summary>
+        <label for="p-lez-s">Lezione</label>
+        <select id="p-lez-s">${lez.map(l => `<option value="${l.id}" ${l.id === predef ? "selected" : ""}>${esc(fmtData(l.data))} – ${esc(l.titolo)}</option>`).join("")}</select>
+        <label for="p-cod">Codice di 6 cifre</label><input id="p-cod" inputmode="numeric" maxlength="6" autocomplete="off">
+        <button class="btn" id="segna" style="margin-top:12px">Segna presenza</button>
+      </details>
+    </div>
+    <h3>Le tue presenze: ${lez.filter(l => mie.some(p => p.lezione === l.id)).length} su ${lez.length} lezioni</h3>
+    ${lez.map(l => { const p = mie.some(x => x.lezione === l.id);
+      return `<div class="voce ${p ? "piena" : ""}"><div class="meta">${esc(fmtData(l.data))}</div><p>${esc(l.titolo)} — ${p ? "presente" : "non registrata"}</p></div>`; }).join("")}`;
+  },
+
+  async utenti() {
+    const tutti = await lista("utenti");
+    cache.utenti = tutti;
+    tutti.sort((a, b) => (a.ruolo === "in_attesa" ? 0 : 1) - (b.ruolo === "in_attesa" ? 0 : 1) || (a.nome || "").localeCompare(b.nome || ""));
+    const inAttesa = tutti.filter(u => u.ruolo === "in_attesa").length;
+    return `<div class="sezione-titolo"><h2>Utenti</h2></div>
+    <p class="nota">${inAttesa ? `${inAttesa} richieste da approvare, in cima all'elenco.` : "Nessuna richiesta in attesa."} Apri un nome per assegnare ruolo e classi.</p>
+    <label for="u-cerca">Cerca</label><input id="u-cerca" placeholder="Nome o email">
+    <label for="u-filtro">Mostra</label>
+    <select id="u-filtro"><option value="">Tutti</option><option value="in_attesa">Da approvare</option>
+      <option value="studente">Studenti</option><option value="docente">Docenti</option><option value="segreteria">Segreteria</option></select>
+    <div id="u-elenco">${tutti.map(schedaUtente).join("")}</div>`;
+  }
+};
+
+function schedaUtente(u) {
+  const r = u.richiesta || {};
+  const classiSel = u.ruolo === "in_attesa" ? (r.classe ? [r.classe] : []) : (u.classi || []);
+  const ruoloSel = u.ruolo === "in_attesa" ? (r.tipo || "studente") : u.ruolo;
+  const admin = (u.email || "").toLowerCase() === AMMINISTRATORE;
+  const descr = u.ruolo === "in_attesa"
+    ? `Chiede di entrare come ${esc(r.tipo || "?")}${r.classe ? " in " + esc(nomeClasse(r.classe)) : ""}`
+    : `${esc(u.ruolo)}${(u.classi || []).length ? " · " + (u.classi.length > 2 ? u.classi.length + " classi" : u.classi.map(nomeClasse).map(esc).join(", ")) : ""}`;
+  return `<details class="utente" data-uid="${u.id}" data-cerca="${esc(((u.nome || "") + " " + (u.email || "")).toLowerCase())}" data-ruolo="${esc(u.ruolo)}" ${u.ruolo === "in_attesa" ? "open" : ""}>
+    <summary><b>${esc(u.nome)}</b>${u.ruolo === "in_attesa" ? `<span class="etichetta attesa">da approvare</span>` : ""}<small>${esc(u.email)}</small><small>${descr}</small></summary>
+    ${admin ? `<div class="dentro nota">Account principale: ha sempre accesso completo.</div>` : `<div class="dentro">
+      <label>Ruolo</label>
+      <select class="u-ruolo">${["studente","docente","segreteria"].map(x => `<option value="${x}" ${x === ruoloSel ? "selected" : ""}>${x[0].toUpperCase() + x.slice(1)}</option>`).join("")}</select>
+      <label>Classi</label>
+      <div class="griglia-classi">${SEDI.map(([, sn]) => `<fieldset><legend>${sn}</legend>${CLASSI.filter(c => c.sede === sn)
+        .map(c => `<label><input type="checkbox" value="${c.id}" ${classiSel.includes(c.id) ? "checked" : ""}> ${esc(c.nome)}</label>`).join("")}</fieldset>`).join("")}</div>
+      <p class="nota">Uno studente va in una sola classe. Un docente può averne più di una. La segreteria vede tutto.</p>
+      <div class="riga-btn"><button class="btn piccolo u-salva">${u.ruolo === "in_attesa" ? "Approva" : "Salva"}</button>
+      <button class="link rosso u-rimuovi">${u.ruolo === "in_attesa" ? "Rifiuta" : "Rimuovi accesso"}</button></div>
+    </div>`}
+  </details>`;
+}
+
+/* ---------- Azioni ---------- */
+const AZIONI = {
+  bacheca(v) {
+    collegaElimina(v);
+    const pa = v.querySelector("#pubblica-avviso");
+    if (pa) pa.onclick = async () => {
+      const t = $("#nuovo-avviso").value.trim(); if (!t) return toast("Scrivi il testo dell'avviso");
+      occupato(pa, true);
+      try { await addDoc(collection(db, "avvisi"), { classe, data: oggi(), testo: t, autore: profilo.nome, creato: serverTimestamp() }); toast("Avviso pubblicato"); disegna(); }
+      catch (e) { toast("Pubblicazione non riuscita"); occupato(pa, false); }
+    };
+    const al = v.querySelector("#agg-lez");
+    if (al) al.onclick = async () => {
+      const t = $("#l-tit").value.trim(), d = $("#l-data").value, l = $("#l-luogo").value.trim();
+      if (!t || !d) return toast("Inserisci titolo, data e ora");
+      occupato(al, true);
+      try { await addDoc(collection(db, "lezioni"), { classe, data: d, titolo: t, luogo: l, creato: serverTimestamp() }); toast("Lezione aggiunta"); disegna(); }
+      catch (e) { toast("Salvataggio non riuscito"); occupato(al, false); }
+    };
+  },
+  materiali(v) {
+    collegaElimina(v);
+    const b = v.querySelector("#agg-mat");
+    if (b) b.onclick = async () => {
+      const t = $("#m-tit").value.trim(), l = $("#m-link").value.trim();
+      if (!t) return toast("Inserisci un titolo");
+      if (!/^https?:\/\//i.test(l)) return toast("Incolla un link che inizi con https://");
+      occupato(b, true);
+      try { await addDoc(collection(db, "materiali"), { classe, titolo: t, link: l, data: oggi(), creato: serverTimestamp() }); toast("Materiale aggiunto"); disegna(); }
+      catch (e) { toast("Salvataggio non riuscito"); occupato(b, false); }
+    };
+  },
+  quiz(v) {
+    collegaElimina(v);
+    v.querySelectorAll("[data-quiz]").forEach(b => b.onclick = () => svolgiQuiz(cache.quiz.find(q => q.id === b.dataset.quiz)));
+    const n = v.querySelector("#nuovo-quiz"); if (n) n.onclick = creaQuiz;
+  },
+  osservazioni(v) {
+    collegaElimina(v);
+    const b = v.querySelector("#invia-oss");
+    if (b) b.onclick = async () => {
+      const t = $("#o-tit").value.trim(), x = $("#o-testo").value.trim();
+      if (!t || !x) return toast("Compila titolo e osservazione");
+      occupato(b, true);
+      try { await addDoc(collection(db, "osservazioni"), { classe, studente: utente.uid, nome: profilo.nome, data: oggi(), titolo: t, testo: x, creato: serverTimestamp() });
+        toast("Osservazione inviata al docente"); disegna(); }
+      catch (e) { toast("Invio non riuscito"); occupato(b, false); }
+    };
+  },
+  presenze(v) {
+    if (staff()) {
+      const q = v.querySelector("#qr");
+      if (q && cache.sess && window.QRCode) new QRCode(q, { text: `WALDEN|${classe}|${cache.sess.lezione}|${cache.sess.codice}`, width: 220, height: 220, colorDark: "#16211E", colorLight: "#ffffff" });
+      const a = v.querySelector("#apri-qr");
+      if (a) a.onclick = async () => {
+        const codice = String(Math.floor(100000 + Math.random() * 900000));
+        occupato(a, true);
+        try { await setDoc(doc(db, "sessioni", classe), { classe, lezione: $("#p-lez").value, codice, scade: Timestamp.fromMillis(Date.now() + 3*3600*1000) }); disegna(); }
+        catch (e) { toast("Non è stato possibile aprire le presenze"); occupato(a, false); }
+      };
+      const c = v.querySelector("#chiudi-qr");
+      if (c) c.onclick = async () => { try { await deleteDoc(doc(db, "sessioni", classe)); toast("Presenze chiuse"); disegna(); } catch (e) { toast("Operazione non riuscita"); } };
+      v.querySelectorAll("button.cella").forEach(b => b.onclick = async () => {
+        const id = `${b.dataset.l}_${b.dataset.s}`, presente = b.classList.contains("si");
+        occupato(b, true);
+        try {
+          if (presente) await deleteDoc(doc(db, "presenze", id));
+          else { const s = cache.studenti.find(x => x.id === b.dataset.s);
+            await setDoc(doc(db, "presenze", id), { lezione: b.dataset.l, classe, studente: b.dataset.s, nome: s ? s.nome : "", manuale: true, creato: serverTimestamp() }); }
+          disegna();
+        } catch (e) { toast("Modifica non riuscita"); occupato(b, false); }
+      });
+      return;
+    }
+    v.querySelector("#scansiona").onclick = avviaLettore;
+    v.querySelector("#segna").onclick = () => {
+      const c = $("#p-cod").value.trim();
+      if (!/^\d{6}$/.test(c)) return toast("Il codice è di 6 cifre");
+      segnaPresenza($("#p-lez-s").value, c);
+    };
+  },
+  utenti(v) {
+    const filtra = () => {
+      const t = $("#u-cerca").value.trim().toLowerCase(), r = $("#u-filtro").value;
+      v.querySelectorAll("details.utente").forEach(d => { d.hidden = !(d.dataset.cerca.includes(t) && (!r || d.dataset.ruolo === r)); });
+    };
+    $("#u-cerca").oninput = filtra; $("#u-filtro").onchange = filtra;
+    v.querySelectorAll("details.utente").forEach(d => {
+      const uid = d.dataset.uid, salva = d.querySelector(".u-salva"), rimuovi = d.querySelector(".u-rimuovi");
+      if (!salva) return;
+      salva.onclick = async () => {
+        const ruolo = d.querySelector(".u-ruolo").value;
+        const classi = [...d.querySelectorAll('.griglia-classi input:checked')].map(i => i.value);
+        if (ruolo === "studente" && classi.length !== 1) return toast("Scegli una sola classe per lo studente");
+        if (ruolo === "docente" && !classi.length) return toast("Scegli almeno una classe per il docente");
+        occupato(salva, true);
+        try { await updateDoc(doc(db, "utenti", uid), { ruolo, classi: ruolo === "segreteria" ? [] : classi }); toast("Salvato"); disegna(); }
+        catch (e) { toast("Salvataggio non riuscito"); occupato(salva, false); }
+      };
+      rimuovi.onclick = async () => {
+        if (!confirm("Questa persona non potrà più usare l'app finché non la riapprovi. Continuare?")) return;
+        try { await deleteDoc(doc(db, "utenti", uid)); toast("Accesso rimosso"); disegna(); }
+        catch (e) { toast("Operazione non riuscita"); }
+      };
+    });
+  }
+};
+
+/* ---------- Quiz: svolgimento ---------- */
+function svolgiQuiz(q) {
+  const v = $("#vista");
+  v.innerHTML = `<button class="btn piccolo secondario" id="indietro">Torna ai quiz</button>
+  <h2 style="margin-top:18px">${esc(q.titolo)}</h2>
+  ${q.domande.map((d, i) => `<div class="domanda"><div class="testo">${i + 1}. ${esc(d.t)}</div>
+    ${d.o.map((o, j) => `<label class="opz" data-d="${i}" data-o="${j}"><input type="radio" name="d${i}" value="${j}"> <span>${esc(o)}</span></label>`).join("")}</div>`).join("")}
+  <button class="btn pieno" id="consegna">Consegna</button><div id="esito"></div>`;
+  window.scrollTo(0,0);
+  $("#indietro").onclick = disegna;
+  $("#consegna").onclick = async () => {
+    const scelte = q.domande.map((d, i) => { const s = v.querySelector(`input[name=d${i}]:checked`); return s ? +s.value : null; });
+    if (scelte.includes(null)) return toast("Rispondi a tutte le domande");
+    const punti = scelte.filter((s, i) => s === q.domande[i].g).length;
+    const b = $("#consegna"); occupato(b, true);
+    try {
+      await setDoc(doc(db, "risultati", `${q.id}_${utente.uid}`), { quiz: q.id, classe, studente: utente.uid, nome: profilo.nome, punti, tot: q.domande.length, data: oggi(), creato: serverTimestamp() });
+    } catch (e) { toast("Consegna non riuscita. Riprova."); occupato(b, false); return; }
+    q.domande.forEach((d, i) => v.querySelectorAll(`.opz[data-d="${i}"]`).forEach(l => {
+      const j = +l.dataset.o; if (j === d.g) l.classList.add("giusta"); else if (j === scelte[i]) l.classList.add("sbagliata"); }));
+    v.querySelectorAll("input[type=radio]").forEach(i => i.disabled = true);
+    b.hidden = true;
+    $("#esito").innerHTML = `<div class="pannello"><div class="punteggio">${punti}/${q.domande.length}</div><p>Risultato inviato al docente. In verde le risposte corrette.</p>
+      <button class="btn secondario" id="fine">Torna ai quiz</button></div>`;
+    $("#fine").onclick = disegna;
+  };
+}
+
+/* ---------- Quiz: creazione (docenti) ---------- */
+function creaQuiz() {
+  const v = $("#vista"); let n = 0;
+  const blocco = () => { const k = n++; return `<div class="blocco-domanda" data-k="${k}">
+    <label>Domanda</label><textarea class="q-testo" style="min-height:70px"></textarea>
+    <div class="nota">Scrivi le risposte e segna quella corretta.</div>
+    ${[0,1,2,3].map(j => `<div class="opz-edit"><input type="radio" name="g${k}" value="${j}" aria-label="Risposta ${j + 1} corretta"><input class="q-opz" placeholder="Risposta ${j + 1}${j > 1 ? " (facoltativa)" : ""}"></div>`).join("")}
+    <button class="link rosso q-togli">Togli questa domanda</button></div>`; };
+  v.innerHTML = `<button class="btn piccolo secondario" id="indietro">Annulla</button>
+  <h2 style="margin-top:18px">Nuovo quiz</h2><p class="nota">Per la classe ${esc(nomeClasse(classe))}</p>
+  <label for="q-tit">Titolo</label><input id="q-tit" placeholder="Es. Verifica: modello ABC">
+  <div id="q-domande">${blocco()}</div>
+  <div class="riga-btn"><button class="btn secondario" id="q-agg">Aggiungi domanda</button></div>
+  <button class="btn pieno" id="q-pubblica" style="margin-top:24px">Pubblica il quiz</button>`;
+  window.scrollTo(0,0);
+  const collegaTogli = () => v.querySelectorAll(".q-togli").forEach(b => b.onclick = () => {
+    if (v.querySelectorAll(".blocco-domanda").length > 1) b.closest(".blocco-domanda").remove(); else toast("Serve almeno una domanda"); });
+  collegaTogli();
+  $("#indietro").onclick = disegna;
+  $("#q-agg").onclick = () => { $("#q-domande").insertAdjacentHTML("beforeend", blocco()); collegaTogli(); };
+  $("#q-pubblica").onclick = async () => {
+    const titolo = $("#q-tit").value.trim(); if (!titolo) return toast("Dai un titolo al quiz");
+    const domande = [];
+    for (const [i, b] of [...v.querySelectorAll(".blocco-domanda")].entries()) {
+      const t = b.querySelector(".q-testo").value.trim();
+      const opz = [...b.querySelectorAll(".q-opz")].map(x => x.value.trim());
+      const g = b.querySelector(`input[type=radio]:checked`);
+      if (!t) return toast(`Scrivi il testo della domanda ${i + 1}`);
+      const piene = opz.map((o, j) => ({ o, j })).filter(x => x.o);
+      if (piene.length < 2) return toast(`La domanda ${i + 1} ha bisogno di almeno 2 risposte`);
+      if (!g || !opz[+g.value]) return toast(`Segna la risposta corretta della domanda ${i + 1}`);
+      domande.push({ t, o: piene.map(x => x.o), g: piene.findIndex(x => x.j === +g.value) });
+    }
+    const b = $("#q-pubblica"); occupato(b, true);
+    try { await addDoc(collection(db, "quiz"), { classe, titolo, domande, data: oggi(), autore: profilo.nome, creato: serverTimestamp() }); toast("Quiz pubblicato"); disegna(); }
+    catch (e) { toast("Pubblicazione non riuscita"); occupato(b, false); }
+  };
+}
+
+/* ---------- Presenze: lettore QR (studenti) ---------- */
+async function avviaLettore() {
+  if (!window.Html5Qrcode) return toast("Lettore non disponibile: inserisci il codice a mano");
+  fermaLettore();
+  $("#scansiona").hidden = true;
+  lettore = new Html5Qrcode("lettore");
+  try {
+    await lettore.start({ facingMode: "environment" }, { fps: 10, qrbox: 220 }, testo => {
+      fermaLettore();
+      const p = testo.split("|");
+      if (p.length !== 4 || p[0] !== "WALDEN") return toast("Questo QR non è un QR presenze Walden");
+      if (p[1] !== classe) return toast("Questo QR è di un'altra classe");
+      segnaPresenza(p[2], p[3]);
+    });
+  } catch (e) {
+    fermaLettore();
+    toast("Non riesco ad aprire la fotocamera. Consenti l'accesso o inserisci il codice.");
+  }
+}
+function fermaLettore() {
+  if (lettore) { const l = lettore; lettore = null; l.stop().catch(() => {}).finally(() => { try { l.clear(); } catch (e) {} }); }
+  const s = document.getElementById("scansiona"); if (s) s.hidden = false;
+}
+async function segnaPresenza(lezione, codice) {
+  if ((cache.mie || []).some(p => p.lezione === lezione)) return toast("Presenza già registrata per questa lezione");
+  try {
+    await setDoc(doc(db, "presenze", `${lezione}_${utente.uid}`), { lezione, classe, studente: utente.uid, nome: profilo.nome, codice, creato: serverTimestamp() });
+    toast("Presenza registrata"); disegna();
+  } catch (e) { toast("Codice non valido o scaduto per questa lezione"); }
+}
+
+/* ---------- Funzionamento offline di base ---------- */
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>
