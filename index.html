@@ -106,6 +106,7 @@ td button.cella{background:none;border:1px solid var(--linea);border-radius:8px;
 td button.cella.si{color:var(--ok);border-color:var(--ok)}
 td button.cella.no{color:var(--tenue)}
 
+details.pannello summary{cursor:pointer}
 details.utente{border:1.5px solid var(--linea);border-radius:12px;background:var(--superficie);margin:10px 0}
 details.utente summary{padding:12px 14px;cursor:pointer}
 details.utente summary small{display:block;color:var(--tenue)}
@@ -159,7 +160,7 @@ nav.schede button[aria-current="page"]{color:var(--lago);font-weight:700}
   <div class="box">
     <span class="logo" role="img" aria-label="Logo Istituto Walden"></span>
     <h1>Crea un account</h1>
-    <p class="sotto">La segreteria approverà la richiesta e ti assegnerà alla tua classe.</p>
+    <p class="sotto">Se la segreteria ti ha già inserito nell'elenco entrerai subito, altrimenti approverà la tua richiesta.</p>
     <label for="r-nome">Nome e cognome</label><input id="r-nome" autocomplete="name">
     <label for="r-email">Email</label><input id="r-email" type="email" autocomplete="email">
     <label for="r-pwd">Password (almeno 6 caratteri)</label><input id="r-pwd" type="password" autocomplete="new-password">
@@ -206,7 +207,7 @@ nav.schede button[aria-current="page"]{color:var(--lago);font-weight:700}
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, getDocs, serverTimestamp, Timestamp }
+import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, getDocs, serverTimestamp, Timestamp, writeBatch }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -315,15 +316,22 @@ onAuthStateChanged(auth, async u => {
 async function caricaProfilo() {
   try {
     const ref = doc(db, "utenti", utente.uid);
+    const em = (utente.email || "").toLowerCase();
+    const admin = em === AMMINISTRATORE;
+    let isc = null;
+    if (!admin && em) { try { const d = await getDoc(doc(db, "iscrizioni", em)); if (d.exists()) isc = d.data(); } catch (e) {} }
     let s = await getDoc(ref);
+    if (s.exists() && s.data().ruolo === "in_attesa" && isc) {
+      await updateDoc(ref, { ruolo: isc.ruolo, classi: isc.classi });
+      s = await getDoc(ref);
+    }
     if (!s.exists()) {
-      const admin = (utente.email || "").toLowerCase() === AMMINISTRATORE;
       const r = registrazioneInCorso;
       await setDoc(ref, {
-        nome: admin ? "Segreteria Istituto Walden" : (r ? r.nome : utente.email),
+        nome: admin ? "Segreteria Istituto Walden" : (isc ? isc.nome : (r ? r.nome : utente.email)),
         email: utente.email,
-        ruolo: admin ? "segreteria" : "in_attesa",
-        classi: [],
+        ruolo: admin ? "segreteria" : (isc ? isc.ruolo : "in_attesa"),
+        classi: isc ? isc.classi : [],
         richiesta: admin ? null : (r ? { tipo: r.tipo, classe: r.classe } : null),
         creato: serverTimestamp()
       });
@@ -538,12 +546,27 @@ const VISTE = {
   },
 
   async utenti() {
-    const tutti = await lista("utenti");
-    cache.utenti = tutti;
+    const [tutti, isc] = await Promise.all([lista("utenti"), lista("iscrizioni")]);
+    cache.utenti = tutti; cache.iscrizioni = isc;
+    const registrati = new Set(tutti.map(u => (u.email || "").toLowerCase()));
+    const nonReg = isc.filter(i => !registrati.has(i.id)).sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
     tutti.sort((a, b) => (a.ruolo === "in_attesa" ? 0 : 1) - (b.ruolo === "in_attesa" ? 0 : 1) || (a.nome || "").localeCompare(b.nome || ""));
     const inAttesa = tutti.filter(u => u.ruolo === "in_attesa").length;
     return `<div class="sezione-titolo"><h2>Utenti</h2></div>
     <p class="nota">${inAttesa ? `${inAttesa} richieste da approvare, in cima all'elenco.` : "Nessuna richiesta in attesa."} Apri un nome per assegnare ruolo e classi.</p>
+    <details class="pannello"><summary><b>Carica un elenco</b></summary>
+      <p class="nota">Le persone dell'elenco, quando si registrano con quella email, entrano subito nella classe giusta.</p>
+      <label for="e-ruolo">Ruolo</label><select id="e-ruolo"><option value="studente">Studenti</option><option value="docente">Docenti</option></select>
+      <label for="e-classe">Classe</label><select id="e-classe">${opzioniClassi("roma-1")}</select>
+      <label for="e-testo">Elenco</label>
+      <textarea id="e-testo" style="min-height:160px" placeholder="Mario Rossi, mario.rossi@email.it&#10;Giulia Bianchi, giulia.bianchi@email.it"></textarea>
+      <p class="nota">Una persona per riga: nome e cognome, poi l'email. Puoi anche incollare due colonne copiate da Excel.</p>
+      <button class="btn" id="e-carica">Carica elenco</button>
+    </details>
+    <details class="pannello"><summary><b>In elenco, non ancora registrati (${nonReg.length})</b></summary>
+      ${nonReg.map(i => `<div class="voce"><b>${esc(i.nome)}</b><div class="meta">${esc(i.id)} · ${esc(i.ruolo)} · ${i.classi.map(nomeClasse).map(esc).join(", ")}
+        <button class="link rosso" data-elimina-isc="${esc(i.id)}">Elimina</button></div></div>`).join("") || `<p class="vuoto">Nessuno.</p>`}
+    </details>
     <label for="u-cerca">Cerca</label><input id="u-cerca" placeholder="Nome o email">
     <label for="u-filtro">Mostra</label>
     <select id="u-filtro"><option value="">Tutti</option><option value="in_attesa">Da approvare</option>
@@ -662,6 +685,11 @@ const AZIONI = {
       v.querySelectorAll("details.utente").forEach(d => { d.hidden = !(d.dataset.cerca.includes(t) && (!r || d.dataset.ruolo === r)); });
     };
     $("#u-cerca").oninput = filtra; $("#u-filtro").onchange = filtra;
+    $("#e-carica").onclick = caricaElenco;
+    v.querySelectorAll("[data-elimina-isc]").forEach(b => b.onclick = async () => {
+      if (!confirm("Togliere questa persona dall'elenco?")) return;
+      try { await deleteDoc(doc(db, "iscrizioni", b.dataset.eliminaIsc)); toast("Tolto dall'elenco"); disegna(); } catch (e) { toast("Operazione non riuscita"); }
+    });
     v.querySelectorAll("details.utente").forEach(d => {
       const uid = d.dataset.uid, salva = d.querySelector(".u-salva"), rimuovi = d.querySelector(".u-rimuovi");
       if (!salva) return;
@@ -682,6 +710,40 @@ const AZIONI = {
     });
   }
 };
+
+/* ---------- Elenco precaricato (segreteria) ---------- */
+async function caricaElenco() {
+  const ruolo = $("#e-ruolo").value, cl = $("#e-classe").value;
+  const righe = $("#e-testo").value.split(/\r?\n/).map(r => r.trim()).filter(Boolean);
+  if (!righe.length) return toast("Incolla almeno un nominativo");
+  const voci = [], scartate = [];
+  for (const r of righe) {
+    const m = r.match(/[^\s,;<>"']+@[^\s,;<>"']+\.[^\s,;<>"']+/);
+    if (!m) { scartate.push(r); continue; }
+    const email = m[0].toLowerCase();
+    const nome = r.replace(m[0], " ").replace(/[\t,;<>"]+/g, " ").replace(/\s+/g, " ").trim() || email;
+    voci.push({ email, nome });
+  }
+  if (!voci.length) return toast("Nessuna email trovata nell'elenco");
+  const esistenti = new Map((cache.iscrizioni || []).map(i => [i.id, i]));
+  const utentiPerEmail = new Map((cache.utenti || []).map(u => [(u.email || "").toLowerCase(), u]));
+  const b = $("#e-carica"); occupato(b, true);
+  try {
+    for (let i = 0; i < voci.length; i += 200) {
+      const lotto = writeBatch(db);
+      for (const { email, nome } of voci.slice(i, i + 200)) {
+        const prima = esistenti.get(email);
+        const classi = ruolo === "docente" && prima && prima.ruolo === "docente" ? [...new Set([...prima.classi, cl])] : [cl];
+        lotto.set(doc(db, "iscrizioni", email), { nome, email, ruolo, classi, creato: serverTimestamp() });
+        const u = utentiPerEmail.get(email);
+        if (u && u.ruolo === "in_attesa") lotto.update(doc(db, "utenti", u.id), { ruolo, classi, nome });
+      }
+      await lotto.commit();
+    }
+    toast(`Caricati ${voci.length} nominativi` + (scartate.length ? ` · ${scartate.length} righe senza email ignorate` : ""));
+    disegna();
+  } catch (e) { console.error(e); toast("Caricamento non riuscito"); occupato(b, false); }
+}
 
 /* ---------- Quiz: svolgimento ---------- */
 function svolgiQuiz(q) {
