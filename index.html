@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16423C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Walden">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Istituto Walden</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+:root{
+  --lago:#16423C; --muschio:#6A8A4E; --carta:#F4F7F5; --superficie:#FFFFFF;
+  --inchiostro:#16211E; --tenue:#5B6A66; --linea:#D5DFDB; --avviso:#A34A28; --ok:#2F7A4B; --logo:#16423C;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --lago:#7FC4B6; --muschio:#A7C487; --carta:#0F1715; --superficie:#18231F;
+  --inchiostro:#E6EEEB; --tenue:#9DB0AA; --linea:#2B3A35; --avviso:#E69A77; --ok:#7FCB98; --logo:#E6EEEB;
+}}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;min-height:100%;background:var(--carta);color:var(--inchiostro);
+  font:17px/1.5 "Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif}
+h1,h2,h3{font-family:Newsreader,Georgia,"Times New Roman",serif;font-weight:600;line-height:1.15;margin:0}
+h1{font-size:1.9rem} h2{font-size:1.45rem} h3{font-size:1.1rem;font-family:inherit;font-weight:700}
+button,input,textarea,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--muschio);outline-offset:2px}
+.logo{display:inline-block;background:var(--logo);-webkit-mask:url(logo.png) center/contain no-repeat;mask:url(logo.png) center/contain no-repeat}
+.wrap{max-width:680px;margin:0 auto;padding:0 18px}
+.centro{min-height:100vh;display:grid;place-items:center;padding:32px 0}
+.box{width:100%;max-width:420px;padding:0 22px}
+.box .logo{width:84px;height:84px}
+.box h1{margin:18px 0 4px}
+.sotto{color:var(--tenue);margin:0 0 22px}
+label{display:block;font-weight:700;font-size:.9rem;margin:14px 0 6px}
+input,textarea,select{width:100%;padding:12px 14px;border:1.5px solid var(--linea);border-radius:10px;background:var(--superficie)}
+textarea{min-height:100px;resize:vertical}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 20px;border-radius:24px;border:0;
+  background:var(--lago);color:var(--carta);font-weight:700;cursor:pointer;text-decoration:none}
+.btn[disabled]{opacity:.55;cursor:wait}
+.btn.pieno{width:100%}
+.btn.secondario{background:transparent;color:var(--lago);border:1.5px solid var(--lago)}
+.btn.piccolo{min-height:38px;padding:0 14px;font-size:.92rem}
+.link{background:none;border:0;color:var(--lago);font-weight:700;cursor:pointer;padding:6px 0;text-decoration:underline}
+.link.rosso{color:var(--avviso)}
+.riga-btn{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.aiuto{margin-top:26px;padding-top:16px;border-top:1px dashed var(--linea);color:var(--tenue);font-size:.88rem}
+.errore{color:var(--avviso);font-weight:700;margin-top:12px;min-height:1.5em}
+.scelta{display:flex;gap:10px}
+.scelta label{flex:1;margin:0;display:flex;gap:8px;align-items:center;justify-content:center;padding:12px;border:1.5px solid var(--linea);border-radius:10px;background:var(--superficie);font-weight:400;cursor:pointer}
+.scelta input{width:auto}
+
+header.barra{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--lago);color:var(--carta)}
+header.barra .wrap{display:flex;align-items:center;gap:12px;min-height:60px}
+header.barra .logo{width:30px;height:30px;background:var(--carta)}
+.corso-sel{flex:1;min-width:0}
+.corso-sel select{background:transparent;border:0;color:var(--carta);font-weight:700;padding:4px 0;width:auto;max-width:100%;-webkit-appearance:none;appearance:none}
+.corso-sel select option,.corso-sel select optgroup{color:#16211E}
+.corso-sel select:disabled{opacity:1}
+.corso-sel small{display:block;opacity:.8;font-size:.78rem;line-height:1.1}
+header.barra button.esci{background:none;border:1px solid currentColor;color:inherit;border-radius:16px;padding:4px 12px;font-size:.85rem;cursor:pointer}
+
+main{padding:22px 0 120px}
+.sezione-titolo{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:6px 0 16px}
+.vuoto{color:var(--tenue);padding:14px 0}
+.voce{position:relative;padding:14px 0 14px 26px;border-bottom:1px solid var(--linea)}
+.voce::before{content:"";position:absolute;left:4px;top:22px;width:9px;height:9px;border:2px solid var(--lago);transform:rotate(45deg)}
+.voce.piena::before{background:var(--lago)}
+.voce .meta{color:var(--tenue);font-size:.88rem}
+.voce p{margin:4px 0 0;white-space:pre-wrap}
+.voce a{color:var(--lago);font-weight:700;word-break:break-word}
+.prossima{background:var(--lago);color:var(--carta);border-radius:16px;padding:20px 22px;margin-bottom:26px}
+.prossima .quando{font-family:Newsreader,Georgia,serif;font-size:1.6rem;line-height:1.1;margin:4px 0}
+.prossima small{opacity:.85}
+.pannello{background:var(--superficie);border:1.5px solid var(--linea);border-radius:14px;padding:18px;margin:18px 0}
+.pannello > .btn{margin-top:14px}
+.nota{font-size:.86rem;color:var(--tenue);margin-top:8px}
+
+.domanda{margin:22px 0}
+.domanda .testo{font-weight:700;margin-bottom:10px}
+.opz{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border:1.5px solid var(--linea);border-radius:10px;margin:0 0 8px;cursor:pointer;background:var(--superficie);font-weight:400;font-size:1rem}
+.opz input{width:auto;margin-top:4px}
+.opz.giusta{border-color:var(--ok)} .opz.sbagliata{border-color:var(--avviso)}
+.punteggio{font-family:Newsreader,Georgia,serif;font-size:2.4rem;color:var(--lago)}
+.blocco-domanda{border-top:1px solid var(--linea);padding-top:12px;margin-top:16px}
+.opz-edit{display:flex;gap:8px;align-items:center;margin-top:8px}
+.opz-edit input[type=radio]{width:auto}
+
+.qr-box{display:grid;place-items:center;gap:10px;padding:24px;background:#fff;border-radius:16px;border:1.5px solid var(--linea);color:#16211E;margin-top:14px}
+.codice{font-size:2.2rem;letter-spacing:.3em;font-weight:700;font-variant-numeric:tabular-nums}
+#lettore{max-width:360px;margin-top:12px}
+.tabella-wrap{overflow-x:auto;margin-top:12px}
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--linea);white-space:nowrap}
+th{color:var(--tenue);font-weight:700;font-size:.85rem}
+td button.cella{background:none;border:1px solid var(--linea);border-radius:8px;width:36px;height:32px;cursor:pointer;font-weight:700}
+td button.cella.si{color:var(--ok);border-color:var(--ok)}
+td button.cella.no{color:var(--tenue)}
+
+details.utente{border:1.5px solid var(--linea);border-radius:12px;background:var(--superficie);margin:10px 0}
+details.utente summary{padding:12px 14px;cursor:pointer}
+details.utente summary small{display:block;color:var(--tenue)}
+details.utente .dentro{padding:0 14px 14px}
+.griglia-classi{display:grid;gap:10px;margin-top:8px}
+.griglia-classi fieldset{border:0;padding:0;margin:0}
+.griglia-classi legend{font-weight:700;font-size:.9rem;margin-bottom:4px}
+.griglia-classi label{display:inline-flex;gap:6px;align-items:center;font-weight:400;margin:2px 12px 2px 0}
+.griglia-classi input{width:auto}
+.etichetta{display:inline-block;font-size:.78rem;font-weight:700;padding:2px 8px;border-radius:10px;border:1px solid currentColor;margin-left:6px}
+.etichetta.attesa{color:var(--avviso)}
+
+nav.schede{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--superficie);border-top:1px solid var(--linea);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav.schede .wrap{display:flex;justify-content:space-between;padding:0 2px}
+nav.schede button{flex:1;background:none;border:0;padding:10px 1px 12px;font-size:.7rem;color:var(--tenue);cursor:pointer;display:grid;justify-items:center;gap:4px}
+nav.schede button svg{width:24px;height:24px}
+nav.schede button[aria-current="page"]{color:var(--lago);font-weight:700}
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:var(--inchiostro);color:var(--carta);padding:12px 18px;border-radius:24px;z-index:10;font-size:.95rem;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;text-align:center}
+.toast.vis{opacity:1}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- Caricamento iniziale -->
+<section id="avvio" class="centro"><span class="logo" style="width:64px;height:64px" role="img" aria-label="Istituto Walden"></span></section>
+
+<!-- Accesso -->
+<section id="accesso" class="centro" hidden>
+  <div class="box">
+    <span class="logo" role="img" aria-label="Logo Istituto Walden"></span>
+    <h1>Istituto Walden</h1>
+    <p class="sotto">Lezioni, materiali, quiz e
